@@ -1,25 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Mic, MicOff, Send, Camera, Download } from 'lucide-react'
-import VisualAvatar from './components/VisualAvatar'
-import ChatInterface from './components/ChatInterface'
+import { Mic, MicOff, Download, Plus, Search } from 'lucide-react'
+import TodoList from './components/TodoList'
 import { useSpeech } from './hooks/useSpeech'
 import { processCommand } from './lib/nlp'
-import { addReminder, addNote, saveFact, getFact, getPendingReminders, db } from './lib/storage'
-import { identifyImage } from './lib/vision'
+import { addTask, getTasks, updateTaskStatus, deleteTask, getPendingReminders, db } from './lib/storage'
+import { useLiveQuery } from 'dexie-react-hooks'
 
 function App() {
-    const [messages, setMessages] = useState([]);
+    const [inputValue, setInputValue] = useState("");
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
-    const [processing, setProcessing] = useState(false);
     const [installPrompt, setInstallPrompt] = useState(null);
 
-    // Vision State
-    const [isCameraOpen, setIsCameraOpen] = useState(false);
-    const videoRef = useRef(null);
+    // Real-time list update from Dexie
+    const tasks = useLiveQuery(() => db.reminders.toArray().then(rows =>
+        // Sort: Pending first, then by date logic? 
+        // Simple: Newest first? Or Pending first?
+        // Let's sort: Undone first, then by ID (created/time)
+        rows.sort((a, b) => a.done - b.done || b.id - a.id)
+    ));
 
-    const { isListening, isSpeaking, transcript, turnOnMicrophone, speak, stopSpeaking, error: speechError } = useSpeech();
+    const { isListening, isSpeaking, transcript, turnOnMicrophone, speak, error: speechError } = useSpeech();
 
-    // PWA Install Prompt Capture
+    // Install Prompt
     useEffect(() => {
         const handleBeforeInstallPrompt = (e) => {
             e.preventDefault();
@@ -29,7 +31,7 @@ function App() {
         return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     }, []);
 
-    // Offline Detection
+    // Offline Check
     useEffect(() => {
         const handleOnline = () => setIsOffline(false);
         const handleOffline = () => setIsOffline(true);
@@ -41,7 +43,7 @@ function App() {
         };
     }, []);
 
-    // Check reminders periodically
+    // Background Reminder Check
     useEffect(() => {
         const interval = setInterval(async () => {
             const pending = await getPendingReminders();
@@ -50,20 +52,38 @@ function App() {
             pending.forEach(reminder => {
                 if (reminder.date) {
                     const reminderTime = new Date(reminder.date).getTime();
-                    if (reminderTime <= now.getTime()) {
-                        speak(`Reminder: ${reminder.title}`);
+                    // Trigger if time matches minute (simple debounce via done check in app flow)
+                    // Or just if passed.
+                    // To avoid spamming, we mark done. But for a Todo list, marking done automatically might be annoying if user didn't do it.
+                    // BUT, user asked for "Reminder". A reminder alerts you.
+                    // We will Alert, but maybe NOT mark done visually in the list? Or mark as "Exceeded"?
+                    // Simplest: Speak alert, show Notification. User manually checks box.
+                    // To prevent repeating, we need a 'notified' flag.
+                    // For MVP, checking status < now && !notified is complex without DB schema update.
+                    // Let's Stick to: Speak + Notification. Debounce by storing 'lastNotified' in memory or localstorage?
+                    // Or just mark done in DB if user wanted "Remind me to call mom". Usually implies one-time.
+
+                    // User said "To Do List". Usually you check it off.
+                    // Compromise: Notification fires, we DON'T auto-check. 
+                    // We need to avoid infinite loop. 
+                    // Let's ignore for now or assume strict equality? Strict equality is flaky.
+                    // We will SKIP auto-update for now to avoid mess, just rely on visual list.
+                    // Wait, user explicitly asked for "Reminder" feature.
+                    // Implies: It needs to ring.
+
+                    if (reminderTime <= now.getTime() && reminderTime > now.getTime() - 60000) {
+                        // Only trigger within the exact minute it became due
+                        speak(`Time to: ${reminder.title}`);
                         if (Notification.permission === 'granted') {
-                            new Notification("Jarvis Reminder", {
+                            new Notification("Time's Up!", {
                                 body: reminder.title,
                                 icon: '/pwa-192x192.png'
                             });
                         }
-                        db.reminders.update(reminder.id, { done: 1 });
-                        addMessage(`Reminder: ${reminder.title}`, 'bot');
                     }
                 }
             });
-        }, 10000);
+        }, 15000);
         return () => clearInterval(interval);
     }, [speak]);
 
@@ -74,10 +94,10 @@ function App() {
         }
     }, []);
 
-    // Handle Speech Transcript
+    // Handle Voice Input
     useEffect(() => {
-        if (!isListening && transcript && !processing) {
-            handleCommand(transcript);
+        if (!isListening && transcript) {
+            handleInput(transcript);
         }
     }, [isListening, transcript]);
 
@@ -92,133 +112,38 @@ function App() {
         }
     };
 
-    const toggleCamera = async () => {
-        if (isCameraOpen) {
-            const stream = videoRef.current.srcObject;
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
-            videoRef.current.srcObject = null;
-            setIsCameraOpen(false);
+    const handleInput = async (text) => {
+        // Process NLP to extract time
+        const { entities } = processCommand(text);
+        const title = entities.content || text; // Content found or raw text
+        const date = entities.time || null;
+
+        await addTask(title, date);
+        setInputValue("");
+
+        // Feedback
+        if (date) {
+            speak(`Added task for ${new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
         } else {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                videoRef.current.srcObject = stream;
-                setIsCameraOpen(true);
-            } catch (e) {
-                addMessage("Could not access camera.", "bot");
-            }
+            // Silent add or brief chirp? Silent is better for lists.
         }
     };
 
-    const analyzeView = async () => {
-        if (!isCameraOpen || !videoRef.current) {
-            speak("My eyes are closed. Open the camera first.");
-            return;
-        }
-        speak("Let me take a look...");
-        addMessage("Analyzing image...", "bot");
-
-        const result = await identifyImage(videoRef.current);
-        const response = `I see a ${result}`;
-
-        addMessage(response, "bot");
-        speak(response);
-    };
-
-    const addMessage = (text, role) => {
-        setMessages(prev => [...prev, { text, role, timestamp: new Date() }]);
-    };
-
-    const handleCommand = async (text) => {
-        setProcessing(true);
-        addMessage(text, 'user');
-
-        // Quick check for vision context
-        if ((text.toLowerCase().includes('what is this') || text.toLowerCase().includes('what do you see')) && isCameraOpen) {
-            await analyzeView();
-            setProcessing(false);
-            return;
-        }
-
-        // Process NLP
-        const { intent, entities } = processCommand(text);
-        console.log("Intent:", intent, entities);
-
-        let responseText = "I didn't quite catch that.";
-
-        try {
-            switch (intent) {
-                case 'SET_REMINDER':
-                    if (entities.content) {
-                        await addReminder(entities.content, entities.time || new Date());
-                        responseText = `Okay, I've set a reminder to ${entities.content} ${entities.time ? 'at ' + entities.time : ''}`;
-                    } else {
-                        responseText = "What should I remind you about?";
-                    }
-                    break;
-                case 'ADD_NOTE':
-                    if (entities.content) {
-                        await addNote(entities.content);
-                        responseText = "Note saved.";
-                    }
-                    break;
-                case 'STORE_FACT':
-                    if (entities.key && entities.value) {
-                        await saveFact(entities.key, entities.value);
-                        responseText = `Okay, I'll remember that your name is ${entities.value}.`;
-                    }
-                    break;
-                case 'QUERY_FACT':
-                    const fact = await getFact(entities.key);
-                    if (fact) {
-                        responseText = `Your name is ${fact}.`;
-                    } else {
-                        responseText = "I don't know that yet.";
-                    }
-                    break;
-                case 'CALCULATE':
-                    if (entities.expression) {
-                        try {
-                            // eslint-disable-next-line no-eval
-                            const result = eval(entities.expression);
-                            responseText = `The result is ${result}`;
-                        } catch (e) {
-                            responseText = "I couldn't calculate that.";
-                        }
-                    }
-                    break;
-                case 'get_time':
-                    responseText = `It is currently ${new Date().toLocaleTimeString()}`;
-                    break;
-                case 'OPEN_URL':
-                    window.open(entities.url, '_blank');
-                    responseText = "Opening browser.";
-                    break;
-                default:
-                    responseText = "I'm not sure how to help with that yet.";
-            }
-        } catch (e) {
-            console.error(e);
-            responseText = "Sorry, I encountered an error accessing my memory.";
-        }
-
-        addMessage(responseText, 'bot');
-        speak(responseText);
-        setTimeout(() => setProcessing(false), 1000);
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!inputValue.trim()) return;
+        handleInput(inputValue);
     };
 
     return (
-        <div className="h-screen w-screen flex flex-col items-center bg-slate-900 text-white relative overflow-hidden">
-            <div className="absolute top-[-50%] left-[-20%] w-[150%] h-[150%] bg-radial-gradient from-slate-800 to-slate-950 -z-10 opacity-50" />
+        <div className="h-screen w-screen flex flex-col bg-slate-950 text-white relative overflow-hidden font-sans">
 
             {isOffline && (
                 <div className="absolute top-0 w-full bg-yellow-600/90 backdrop-blur-sm text-center text-xs py-1 z-50">
-                    Offline Mode Active
+                    Offline
                 </div>
             )}
 
-            {/* Error Banner */}
             {speechError && (
                 <div className="absolute top-8 w-full bg-red-600/90 backdrop-blur-sm text-center text-xs py-1 z-50 animate-bounce">
                     {speechError}
@@ -226,70 +151,54 @@ function App() {
             )}
 
             {/* Header */}
-            <header className="w-full p-4 flex justify-between items-center bg-slate-900/50 backdrop-blur-md border-b border-white/5 z-20">
-                <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                    <span className="font-mono text-sm tracking-widest text-cyan-400">JARVIS.OS</span>
+            <header className="w-full p-4 flex justify-between items-center bg-slate-900 border-b border-white/5 z-20 shadow-lg">
+                <div className="flex items-col flex-col">
+                    <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">Tasks</h1>
+                    <span className="text-xs text-slate-500">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</span>
                 </div>
                 <div className="flex items-center gap-3">
                     {installPrompt && (
                         <button onClick={handleInstallClick} className="flex items-center gap-1 text-xs bg-cyan-900/50 hover:bg-cyan-800 px-3 py-1 rounded border border-cyan-500/30 transition-all">
-                            <Download size={14} /> Install App
+                            <Download size={14} /> Install
                         </button>
                     )}
-                    <div className="text-xs text-slate-500 font-mono">
-                        {new Date().toLocaleDateString()}
-                    </div>
                 </div>
             </header>
 
-            <main className="flex-1 flex flex-col items-center justify-between w-full max-w-lg p-6 relative z-10">
-
-                {/* Camera Overlay */}
-                <div className={`transition-all duration-500 overflow-hidden w-full ${isCameraOpen ? 'max-h-64 mb-4 border border-cyan-500/50 rounded-lg shadow-[0_0_20px_rgba(6,182,212,0.2)]' : 'max-h-0'}`}>
-                    <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover bg-black" />
-                </div>
-
-                {/* Messages scroll area */}
-                <ChatInterface messages={messages} />
-
-                {/* Avatar Centerpiece */}
-                {!isCameraOpen && (
-                    <div className="my-8">
-                        <VisualAvatar isListening={isListening} isSpeaking={isSpeaking} />
-                    </div>
-                )}
-
-                {/* Input/Status Controls */}
-                <div className="w-full flex flex-col items-center gap-4">
-                    <div className="flex gap-4 items-center">
-                        {/* Camera Button */}
-                        <button
-                            onClick={toggleCamera}
-                            className={`p-4 rounded-full transition-all duration-300 transform hover:scale-105 active:scale-95 border border-slate-700
-                      ${isCameraOpen ? 'bg-cyan-900/80 text-cyan-400 shadow-lg' : 'bg-slate-800 text-slate-400'}
-                  `}
-                        >
-                            <Camera size={24} />
-                        </button>
-
-                        {/* Mic Button */}
-                        <button
-                            onClick={isListening ? null : turnOnMicrophone}
-                            className={`p-6 rounded-full transition-all duration-300 transform hover:scale-110 active:scale-95
-                       ${isListening
-                                    ? 'bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.6)] animate-pulse'
-                                    : 'bg-cyan-600 hover:bg-cyan-500 shadow-[0_0_30px_rgba(6,182,212,0.4)]'
-                                }
-                   `}
-                        >
-                            {isListening ? <MicOff className="text-white" size={32} /> : <Mic className="text-white" size={32} />}
-                        </button>
-                    </div>
-
-                    <p className="text-slate-500 text-xs mt-2">{isCameraOpen ? "Tap Mic & ask 'What is this?'" : "Tap to Speak"}</p>
-                </div>
+            {/* List Area */}
+            <main className="flex-1 w-full max-w-lg mx-auto relative z-10 p-2">
+                <TodoList
+                    items={tasks || []}
+                    onToggle={(id, done) => updateTaskStatus(id, !done)}
+                    onDelete={deleteTask}
+                />
             </main>
+
+            {/* Input Area (Bottom Fixed) */}
+            <div className="w-full bg-slate-900/80 backdrop-blur-lg border-t border-white/5 p-4 z-50 pb-8">
+                <div className="max-w-lg mx-auto flex gap-2 items-center">
+                    <button
+                        onClick={turnOnMicrophone}
+                        className={`p-3 rounded-full transition-all ${isListening ? 'bg-red-500 animate-pulse' : 'bg-slate-800 text-cyan-400 border border-slate-700'}`}
+                    >
+                        {isListening ? <MicOff size={20} /> : <Mic size={20} />}
+                    </button>
+
+                    <form onSubmit={handleSubmit} className="flex-1 flex gap-2">
+                        <input
+                            type="text"
+                            value={inputValue}
+                            onChange={(e) => setInputValue(e.target.value)}
+                            placeholder={isListening ? "Listening..." : "Add a task (e.g., 'Call Mom at 5pm')"}
+                            className="flex-1 bg-slate-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cyan-500 outline-none placeholder:text-slate-600"
+                        />
+                        <button type="submit" className="p-3 bg-cyan-600 rounded-xl text-white hover:bg-cyan-500 transition-colors">
+                            <Plus size={20} />
+                        </button>
+                    </form>
+                </div>
+            </div>
+
         </div>
     )
 }
