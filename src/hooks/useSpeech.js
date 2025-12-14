@@ -4,6 +4,7 @@ export const useSpeech = () => {
     const [isListening, setIsListening] = useState(false);
     const [transcript, setTranscript] = useState('');
     const [isSpeaking, setIsSpeaking] = useState(false);
+    const [error, setError] = useState(null);
 
     const recognitionRef = useRef(null);
     const synthesisRef = useRef(window.speechSynthesis);
@@ -19,21 +20,35 @@ export const useSpeech = () => {
 
             recognition.onstart = () => setIsListening(true);
             recognition.onend = () => setIsListening(false);
+            recognition.onerror = (event) => {
+                console.error("Speech error", event.error);
+                setError(`Mic Error: ${event.error}`);
+                setIsListening(false);
+            };
             recognition.onresult = (event) => {
                 const text = event.results[0][0].transcript;
                 setTranscript(text);
+                setError(null);
             };
 
             recognitionRef.current = recognition;
+        } else {
+            setError("Voice features not supported in this browser. Try Chrome/Edge.");
         }
     }, []);
 
     const turnOnMicrophone = () => {
-        if (recognitionRef.current && !isListening) {
+        if (!recognitionRef.current) {
+            setError("Voice features not supported.");
+            return;
+        }
+        if (!isListening) {
             try {
                 recognitionRef.current.start();
+                setError(null);
             } catch (e) {
                 console.error("Mic error:", e);
+                setError("Could not start microphone.");
             }
         }
     };
@@ -47,6 +62,7 @@ export const useSpeech = () => {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.onstart = () => setIsSpeaking(true);
         utterance.onend = () => setIsSpeaking(false);
+        utterance.onerror = (e) => console.error("TTS Error", e);
 
         // Optional: Select a better voice
         const voices = synthesisRef.current.getVoices();
@@ -67,6 +83,7 @@ export const useSpeech = () => {
         isListening,
         transcript,
         isSpeaking,
+        error,
         turnOnMicrophone,
         speak,
         stopSpeaking

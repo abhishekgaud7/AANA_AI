@@ -17,7 +17,7 @@ function App() {
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const videoRef = useRef(null);
 
-    const { isListening, isSpeaking, transcript, turnOnMicrophone, speak, stopSpeaking } = useSpeech();
+    const { isListening, isSpeaking, transcript, turnOnMicrophone, speak, stopSpeaking, error: speechError } = useSpeech();
 
     // PWA Install Prompt Capture
     useEffect(() => {
@@ -215,6 +215,13 @@ function App() {
             {isOffline && (
                 <div className="absolute top-0 w-full bg-yellow-600/90 backdrop-blur-sm text-center text-xs py-1 z-50">
                     Offline Mode Active
+                </div>
+            )}
+
+            {/* Error Banner */}
+            {speechError && (
+                <div className="absolute top-8 w-full bg-red-600/90 backdrop-blur-sm text-center text-xs py-1 z-50 animate-bounce">
+                    {speechError}
                 </div>
             )}
 
