@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #0f172a;
+  --secondary: #1e293b;
+  --accent: #38bdf8;
+  --text: #f8fafc;
+}
+
+body {
+  background-color: var(--primary);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  margin: 0;
+  overflow: hidden; /* Prevent scroll on mobile F2F interface */
+}
