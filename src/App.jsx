@@ -229,7 +229,6 @@ function App() {
     const handleInput = async (text) => {
         const { entities } = processCommand(text);
         const title = entities.content || text;
-        const date = entities.time || null;
         let date = entities.time || reminderTime || null;
 
         // If time picker is used, convert to ISO
@@ -476,7 +475,9 @@ function App() {
                 )}
 
             </div>
-            )
+        </div>
+        </div>
+    )
 }
 
-            export default App
+export default App
