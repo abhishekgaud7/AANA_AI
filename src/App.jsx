@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Mic, MicOff, Download, Plus, Trash2, CheckCheck, Search, Cloud, Sun, CloudRain, Wind } from 'lucide-react'
+import { Mic, MicOff, Download, Plus, Trash2, CheckCheck, Search, Cloud, Sun, CloudRain, Wind, Bell, Clock } from 'lucide-react'
 import TodoList from './components/TodoList'
 import ReminderAlert from './components/ReminderAlert'
 import ParticleBackground from './components/ParticleBackground'
@@ -20,6 +20,8 @@ function App() {
     const [loading, setLoading] = useState(true);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [searchQuery, setSearchQuery] = useState('');
+    const [reminderTime, setReminderTime] = useState(''); // For time picker
+    const [showTimeConfirm, setShowTimeConfirm] = useState(false); // Show confirmation
 
     // Fallback to Dexie if MySQL not available
     const dexieTasks = useLiveQuery(() => db.reminders.toArray().then(rows =>
@@ -106,9 +108,10 @@ function App() {
             }
 
             const now = new Date();
-            console.log(`🔔 Checking reminders at ${now.toLocaleTimeString()}. Found ${pending.length} pending reminders.`);
+            console.log(`\n🔔 [${now.toLocaleTimeString()}] Checking ${pending.length} reminders...`);
 
-            pending.forEach(async (reminder) => {
+            // Use for loop instead of forEach to properly await async operations
+            for (const reminder of pending) {
                 if (reminder.date && !reminder.notified) {
                     const reminderTime = new Date(reminder.date);
                     const timeDiff = now.getTime() - reminderTime.getTime();
@@ -142,25 +145,59 @@ function App() {
                                 icon: '/pwa-192x192.png',
                                 badge: '/pwa-192x192.png',
                                 tag: `reminder-${reminder.id}`,
-                                requireInteraction: true
+                                requireInteraction: true,
+                                vibrate: [200, 100, 200]
                             });
+                            console.log(`     📬 Browser notification sent`);
                         }
+
+                        console.log(`     ✅✅✅ REMINDER COMPLETE!\n`);
                     } else if (timeDiff < 0) {
-                        console.log(`     ⏳ Not yet time (${Math.abs(Math.round(timeDiff / 1000))}s remaining)`);
+                        console.log(`     ⏳ Not yet (${Math.abs(diffSeconds)}s remaining)`);
                     } else {
-                        console.log(`     ⏰ Too late (${Math.round(timeDiff / 1000)}s ago)`);
+                        console.log(`     ⏰ Too late (${diffSeconds}s ago, >10min)`);
                     }
                 }
-            });
-        }, 5000);
+            } // end for loop
+        }, 2000); // Check every 2 seconds!
         return () => clearInterval(interval);
     }, [speak, useMySQL]);
 
-    // Request Notification permission
+    // Request Notification permission - AGGRESSIVE
     useEffect(() => {
-        if ('Notification' in window) {
-            Notification.requestPermission();
-        }
+        const requestPermission = async () => {
+            if ('Notification' in window) {
+                console.log('🔔 Notification API available');
+                console.log('🔔 Current permission:', Notification.permission);
+
+                if (Notification.permission === 'default') {
+                    console.log('🔔 Requesting notification permission...');
+                    const permission = await Notification.requestPermission();
+                    console.log('🔔 Permission result:', permission);
+
+                    if (permission === 'granted') {
+                        console.log('✅ Notifications ENABLED!');
+                        // Show test notification
+                        new Notification('🎉 PA_Aana Notifications Enabled!', {
+                            body: 'You will now receive reminder popups',
+                            icon: '/pwa-192x192.png'
+                        });
+                    } else {
+                        console.log('❌ Notifications DENIED');
+                        alert('⚠️ Please enable notifications to receive reminders!\n\nClick the 🔔 icon in your browser address bar.');
+                    }
+                } else if (Notification.permission === 'granted') {
+                    console.log('✅ Notifications already enabled');
+                } else {
+                    console.log('❌ Notifications denied');
+                }
+            } else {
+                console.log('❌ Notification API not supported');
+            }
+        };
+
+        // Request permission after 2 seconds
+        setTimeout(requestPermission, 2000);
     }, []);
 
     // Update clock every second
@@ -193,6 +230,12 @@ function App() {
         const { entities } = processCommand(text);
         const title = entities.content || text;
         const date = entities.time || null;
+        let date = entities.time || reminderTime || null;
+
+        // If time picker is used, convert to ISO
+        if (reminderTime && !entities.time) {
+            date = new Date(reminderTime).toISOString();
+        }
 
         if (useMySQL) {
             try {
@@ -207,9 +250,16 @@ function App() {
         }
 
         setInputValue("");
+        setReminderTime(""); // Clear time picker
 
+        // Show confirmation
         if (date) {
-            speak(`Added task for ${new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+            const reminderDate = new Date(date);
+            setShowTimeConfirm(true);
+            speak(`Reminder set for ${reminderDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+
+            // Hide confirmation after 3 seconds
+            setTimeout(() => setShowTimeConfirm(false), 3000);
         }
     };
 
@@ -354,45 +404,79 @@ function App() {
 
             {/* Input Area (Bottom Fixed) */}
             <div className="w-full bg-slate-900/80 backdrop-blur-xl border-t border-white/10 p-4 z-50 pb-8 shadow-2xl">
-                <div className="max-w-4xl mx-auto flex gap-3 items-center">
-                    <button
-                        onClick={turnOnMicrophone}
-                        className={`p-3 rounded-full transition-all shadow-lg ${isListening
-                            ? 'bg-red-500 animate-pulse shadow-red-500/50'
-                            : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:scale-110 shadow-cyan-500/50'
-                            }`}
-                    >
-                        {isListening ? <MicOff size={20} /> : <Mic size={20} />}
-                    </button>
+                {/* Time Confirmation Toast */}
+                {showTimeConfirm && (
+                    <div className="max-w-4xl mx-auto mb-3">
+                        <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
+                            <span className="text-xl">✅</span>
+                            <span className="font-medium">Reminder set! Popup will appear at scheduled time.</span>
+                        </div>
+                    </div>
+                )}
 
-                    <form onSubmit={handleSubmit} className="flex-1 flex gap-3">
+                <div className="max-w-4xl mx-auto">
+                    {/* Time Picker Row */}
+                    <div className="flex gap-2 mb-3 items-center">
+                        <label className="text-sm text-purple-300 flex items-center gap-2">
+                            <Clock size={16} />
+                            Set Reminder Time:
+                        </label>
                         <input
-                            type="text"
-                            value={inputValue}
-                            onChange={(e) => setInputValue(e.target.value)}
-                            placeholder={isListening ? "🎤 Listening..." : "Add a task (e.g., 'Call Mom at 5pm')"}
-                            className="flex-1 bg-slate-800/80 backdrop-blur-sm border border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none placeholder:text-slate-500 transition-all"
+                            type="datetime-local"
+                            value={reminderTime}
+                            onChange={(e) => setReminderTime(e.target.value)}
+                            className="bg-slate-800/80 border border-purple-500/30 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-purple-500 outline-none"
                         />
+                        {reminderTime && (
+                            <button
+                                onClick={() => setReminderTime('')}
+                                className="text-xs text-slate-400 hover:text-white"
+                            >
+                                Clear
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Input Row */}
+                    <div className="flex gap-3 items-center">
                         <button
-                            type="submit"
-                            className="p-3 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl text-white hover:scale-105 transition-all shadow-lg shadow-cyan-500/30"
+                            onClick={turnOnMicrophone}
+                            className={`p-3 rounded-full transition-all shadow-lg ${isListening
+                                ? 'bg-red-500 animate-pulse shadow-red-500/50'
+                                : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:scale-110 shadow-cyan-500/50'
+                                }`}
                         >
-                            <Plus size={20} />
+                            {isListening ? <MicOff size={20} /> : <Mic size={20} />}
                         </button>
-                    </form>
+
+                        <form onSubmit={handleSubmit} className="flex-1 flex gap-3">
+                            <input
+                                type="text"
+                                value={inputValue}
+                                onChange={(e) => setInputValue(e.target.value)}
+                                placeholder={isListening ? "🎤 Listening..." : "Add a task (e.g., 'Call Mom at 5pm')"}
+                                className="flex-1 bg-slate-800/80 backdrop-blur-sm border border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none placeholder:text-slate-500 transition-all"
+                            />
+                            <button
+                                type="submit"
+                                className="p-3 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl text-white hover:scale-105 transition-all shadow-lg shadow-cyan-500/30"
+                            >
+                                <Plus size={20} />
+                            </button>
+                        </form>
+                    </div>
                 </div>
+
+                {/* On-Screen Reminder Alert */}
+                {activeReminder && (
+                    <ReminderAlert
+                        reminder={activeReminder}
+                        onClose={() => setActiveReminder(null)}
+                    />
+                )}
+
             </div>
-
-            {/* On-Screen Reminder Alert */}
-            {activeReminder && (
-                <ReminderAlert
-                    reminder={activeReminder}
-                    onClose={() => setActiveReminder(null)}
-                />
-            )}
-
-        </div>
-    )
+            )
 }
 
-export default App
+            export default App
