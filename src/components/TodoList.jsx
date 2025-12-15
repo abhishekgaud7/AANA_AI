@@ -11,7 +11,7 @@ const TodoList = ({ items, onToggle, onDelete }) => {
                 particleCount: 100,
                 spread: 70,
                 origin: { y: 0.6 },
-                colors: ['#38bdf8', '#0ea5e9', '#06b6d4', '#22d3ee', '#3b82f6']
+                colors: ['#a855f7', '#ec4899', '#f472b6', '#d946ef', '#c026d3', '#f9a8d4']
             });
         }
         onToggle(item.id, item.done);
@@ -49,7 +49,7 @@ const TodoList = ({ items, onToggle, onDelete }) => {
                         className={`flex items-center gap-3 p-4 rounded-xl transition-all duration-300 backdrop-blur-sm
                             ${item.done
                                 ? 'bg-slate-800/30 opacity-60'
-                                : 'bg-gradient-to-r from-slate-800/80 to-slate-700/80 border-l-4 border-cyan-500 shadow-lg shadow-cyan-500/10 hover:shadow-cyan-500/20'
+                                : 'bg-gradient-to-r from-slate-800/80 to-slate-700/80 border-l-4 border-purple-500 shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20'
                             }
                         `}
                         whileHover={{ scale: 1.02, x: 5 }}
@@ -57,7 +57,7 @@ const TodoList = ({ items, onToggle, onDelete }) => {
                     >
                         <motion.button
                             onClick={() => handleToggle(item)}
-                            className="text-cyan-400 hover:text-cyan-300 transition-colors"
+                            className="text-purple-400 hover:text-purple-300 transition-colors"
                             whileHover={{ scale: 1.2, rotate: 10 }}
                             whileTap={{ scale: 0.9 }}
                         >
@@ -72,7 +72,7 @@ const TodoList = ({ items, onToggle, onDelete }) => {
                                 <motion.div
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
-                                    className="flex items-center gap-1 text-xs text-cyan-400/80 mt-1"
+                                    className="flex items-center gap-1 text-xs text-purple-400/80 mt-1"
                                 >
                                     <Clock size={12} />
                                     <span>{new Date(item.date).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span>

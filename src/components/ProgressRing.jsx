@@ -39,8 +39,9 @@ const ProgressRing = ({ tasks = [] }) => {
                     />
                     <defs>
                         <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                            <stop offset="0%" stopColor="#06b6d4" />
-                            <stop offset="100%" stopColor="#3b82f6" />
+                            <stop offset="0%" stopColor="#a855f7" />
+                            <stop offset="50%" stopColor="#ec4899" />
+                            <stop offset="100%" stopColor="#f472b6" />
                         </linearGradient>
                     </defs>
                 </svg>

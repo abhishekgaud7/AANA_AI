@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Mic, MicOff, Download, Plus } from 'lucide-react'
+import { Mic, MicOff, Download, Plus, Trash2, CheckCheck, Search, Cloud, Sun, CloudRain, Wind } from 'lucide-react'
 import TodoList from './components/TodoList'
 import ReminderAlert from './components/ReminderAlert'
 import ParticleBackground from './components/ParticleBackground'
@@ -18,6 +18,8 @@ function App() {
     const [useMySQL, setUseMySQL] = useState(false);
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [currentTime, setCurrentTime] = useState(new Date());
+    const [searchQuery, setSearchQuery] = useState('');
 
     // Fallback to Dexie if MySQL not available
     const dexieTasks = useLiveQuery(() => db.reminders.toArray().then(rows =>
@@ -104,13 +106,22 @@ function App() {
             }
 
             const now = new Date();
+            console.log(`🔔 Checking reminders at ${now.toLocaleTimeString()}. Found ${pending.length} pending reminders.`);
 
             pending.forEach(async (reminder) => {
                 if (reminder.date && !reminder.notified) {
-                    const reminderTime = new Date(reminder.date).getTime();
-                    const timeDiff = now.getTime() - reminderTime;
+                    const reminderTime = new Date(reminder.date);
+                    const timeDiff = now.getTime() - reminderTime.getTime();
+
+                    console.log(`  📌 "${reminder.title}"`);
+                    console.log(`     Scheduled: ${reminderTime.toLocaleString()}`);
+                    console.log(`     Current:   ${now.toLocaleString()}`);
+                    console.log(`     Time diff: ${Math.round(timeDiff / 1000)}s`);
+                    console.log(`     Notified:  ${reminder.notified ? 'Yes' : 'No'}`);
 
                     if (timeDiff >= 0 && timeDiff <= 300000) {
+                        console.log(`     ✅ TRIGGERING REMINDER!`);
+
                         // Mark as notified
                         if (useMySQL) {
                             try {
@@ -134,6 +145,10 @@ function App() {
                                 requireInteraction: true
                             });
                         }
+                    } else if (timeDiff < 0) {
+                        console.log(`     ⏳ Not yet time (${Math.abs(Math.round(timeDiff / 1000))}s remaining)`);
+                    } else {
+                        console.log(`     ⏰ Too late (${Math.round(timeDiff / 1000)}s ago)`);
                     }
                 }
             });
@@ -146,6 +161,14 @@ function App() {
         if ('Notification' in window) {
             Notification.requestPermission();
         }
+    }, []);
+
+    // Update clock every second
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setCurrentTime(new Date());
+        }, 1000);
+        return () => clearInterval(timer);
     }, []);
 
     // Handle Voice Input
@@ -222,6 +245,21 @@ function App() {
         handleInput(inputValue);
     };
 
+    const handleClearCompleted = async () => {
+        const completedTasks = tasks.filter(t => t.done);
+        for (const task of completedTasks) {
+            await handleDelete(task.id);
+        }
+    };
+
+    const handleDeleteAll = async () => {
+        if (confirm('Delete all tasks? This cannot be undone.')) {
+            for (const task of tasks) {
+                await handleDelete(task.id);
+            }
+        }
+    };
+
     return (
         <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden font-sans">
 
@@ -258,16 +296,34 @@ function App() {
                 <div className="max-w-4xl mx-auto flex justify-between items-center">
                     <div className="flex items-center gap-4">
                         <div className="flex flex-col">
-                            <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 bg-clip-text text-transparent">
-                                My Tasks
+                            <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 via-pink-500 to-rose-500 bg-clip-text text-transparent">
+                                PA_Aana
                             </h1>
                             <span className="text-xs text-slate-400">
-                                {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+                                {currentTime.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
                             </span>
+                        </div>
+                        <div className="flex flex-col items-center bg-gradient-to-br from-purple-500/20 to-pink-500/20 backdrop-blur-sm px-4 py-2 rounded-xl border border-purple-500/30">
+                            <div className="text-2xl font-bold text-white">
+                                {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                            <div className="text-xs text-purple-300">
+                                {currentTime.toLocaleTimeString([], { second: '2-digit' })}
+                            </div>
                         </div>
                     </div>
 
                     <div className="flex items-center gap-4">
+                        {tasks && tasks.length > 0 && (
+                            <div className="flex flex-col text-right">
+                                <div className="text-sm text-slate-300">
+                                    {tasks.filter(t => t.done).length} / {tasks.length} completed
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                    {tasks.filter(t => !t.done && t.date).length} pending reminders
+                                </div>
+                            </div>
+                        )}
                         {tasks && tasks.length > 0 && <ProgressRing tasks={tasks} />}
                         {installPrompt && (
                             <button
@@ -302,8 +358,8 @@ function App() {
                     <button
                         onClick={turnOnMicrophone}
                         className={`p-3 rounded-full transition-all shadow-lg ${isListening
-                                ? 'bg-red-500 animate-pulse shadow-red-500/50'
-                                : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:scale-110 shadow-cyan-500/50'
+                            ? 'bg-red-500 animate-pulse shadow-red-500/50'
+                            : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:scale-110 shadow-cyan-500/50'
                             }`}
                     >
                         {isListening ? <MicOff size={20} /> : <Mic size={20} />}
@@ -315,7 +371,7 @@ function App() {
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
                             placeholder={isListening ? "🎤 Listening..." : "Add a task (e.g., 'Call Mom at 5pm')"}
-                            className="flex-1 bg-slate-800/80 backdrop-blur-sm border border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent outline-none placeholder:text-slate-500 transition-all"
+                            className="flex-1 bg-slate-800/80 backdrop-blur-sm border border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none placeholder:text-slate-500 transition-all"
                         />
                         <button
                             type="submit"
