@@ -14,10 +14,15 @@
   },
   "homepage": "https://github.com/abhishekgaud7/AANA_AI#readme",
   "dependencies": {
+    "@tsparticles/react": "^3.0.0",
+    "@tsparticles/slim": "^3.9.1",
+    "axios": "^1.13.2",
+    "canvas-confetti": "^1.9.4",
     "compromise": "^14.14.5",
     "compromise-dates": "^3.7.1",
     "dexie": "^4.2.1",
     "dexie-react-hooks": "^4.2.0",
+    "framer-motion": "^12.23.26",
     "lucide-react": "^0.561.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"

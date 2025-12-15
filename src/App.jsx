@@ -1,25 +1,61 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { Mic, MicOff, Download, Plus, Search } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { Mic, MicOff, Download, Plus } from 'lucide-react'
 import TodoList from './components/TodoList'
+import ReminderAlert from './components/ReminderAlert'
+import ParticleBackground from './components/ParticleBackground'
+import ProgressRing from './components/ProgressRing'
 import { useSpeech } from './hooks/useSpeech'
 import { processCommand } from './lib/nlp'
-import { addTask, getTasks, updateTaskStatus, deleteTask, getPendingReminders, db } from './lib/storage'
+import { addTask, getTasks, updateTaskStatus, deleteTask, getPendingReminders, markAsNotified, db } from './lib/storage'
+import taskService from './api/taskService'
 import { useLiveQuery } from 'dexie-react-hooks'
 
 function App() {
     const [inputValue, setInputValue] = useState("");
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
     const [installPrompt, setInstallPrompt] = useState(null);
+    const [activeReminder, setActiveReminder] = useState(null);
+    const [useMySQL, setUseMySQL] = useState(false);
+    const [tasks, setTasks] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-    // Real-time list update from Dexie
-    const tasks = useLiveQuery(() => db.reminders.toArray().then(rows =>
-        // Sort: Pending first, then by date logic? 
-        // Simple: Newest first? Or Pending first?
-        // Let's sort: Undone first, then by ID (created/time)
+    // Fallback to Dexie if MySQL not available
+    const dexieTasks = useLiveQuery(() => db.reminders.toArray().then(rows =>
         rows.sort((a, b) => a.done - b.done || b.id - a.id)
     ));
 
-    const { isListening, isSpeaking, transcript, turnOnMicrophone, speak, error: speechError } = useSpeech();
+    const { isListening, transcript, turnOnMicrophone, speak, error: speechError } = useSpeech();
+
+    // Check MySQL availability on mount
+    useEffect(() => {
+        async function checkBackend() {
+            const isHealthy = await taskService.checkHealth();
+            setUseMySQL(isHealthy);
+            if (isHealthy) {
+                await loadTasksFromMySQL();
+            }
+            setLoading(false);
+        }
+        checkBackend();
+    }, []);
+
+    // Use MySQL tasks if available, otherwise Dexie
+    useEffect(() => {
+        if (!useMySQL && dexieTasks) {
+            setTasks(dexieTasks);
+        }
+    }, [useMySQL, dexieTasks]);
+
+    // Load tasks from MySQL
+    const loadTasksFromMySQL = async () => {
+        try {
+            const data = await taskService.getAllTasks();
+            setTasks(data);
+        } catch (error) {
+            console.error('Failed to load from MySQL, falling back to Dexie');
+            setUseMySQL(false);
+        }
+    };
 
     // Install Prompt
     useEffect(() => {
@@ -33,7 +69,16 @@ function App() {
 
     // Offline Check
     useEffect(() => {
-        const handleOnline = () => setIsOffline(false);
+        const handleOnline = () => {
+            setIsOffline(false);
+            // Retry MySQL connection when back online
+            taskService.checkHealth().then(healthy => {
+                if (healthy) {
+                    setUseMySQL(true);
+                    loadTasksFromMySQL();
+                }
+            });
+        };
         const handleOffline = () => setIsOffline(true);
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
@@ -46,46 +91,55 @@ function App() {
     // Background Reminder Check
     useEffect(() => {
         const interval = setInterval(async () => {
-            const pending = await getPendingReminders();
+            let pending = [];
+
+            if (useMySQL) {
+                try {
+                    pending = await taskService.getPendingReminders();
+                } catch (error) {
+                    pending = await getPendingReminders();
+                }
+            } else {
+                pending = await getPendingReminders();
+            }
+
             const now = new Date();
 
-            pending.forEach(reminder => {
-                if (reminder.date) {
+            pending.forEach(async (reminder) => {
+                if (reminder.date && !reminder.notified) {
                     const reminderTime = new Date(reminder.date).getTime();
-                    // Trigger if time matches minute (simple debounce via done check in app flow)
-                    // Or just if passed.
-                    // To avoid spamming, we mark done. But for a Todo list, marking done automatically might be annoying if user didn't do it.
-                    // BUT, user asked for "Reminder". A reminder alerts you.
-                    // We will Alert, but maybe NOT mark done visually in the list? Or mark as "Exceeded"?
-                    // Simplest: Speak alert, show Notification. User manually checks box.
-                    // To prevent repeating, we need a 'notified' flag.
-                    // For MVP, checking status < now && !notified is complex without DB schema update.
-                    // Let's Stick to: Speak + Notification. Debounce by storing 'lastNotified' in memory or localstorage?
-                    // Or just mark done in DB if user wanted "Remind me to call mom". Usually implies one-time.
+                    const timeDiff = now.getTime() - reminderTime;
 
-                    // User said "To Do List". Usually you check it off.
-                    // Compromise: Notification fires, we DON'T auto-check. 
-                    // We need to avoid infinite loop. 
-                    // Let's ignore for now or assume strict equality? Strict equality is flaky.
-                    // We will SKIP auto-update for now to avoid mess, just rely on visual list.
-                    // Wait, user explicitly asked for "Reminder" feature.
-                    // Implies: It needs to ring.
+                    if (timeDiff >= 0 && timeDiff <= 300000) {
+                        // Mark as notified
+                        if (useMySQL) {
+                            try {
+                                await taskService.updateTask(reminder.id, { notified: 1 });
+                            } catch (error) {
+                                await markAsNotified(reminder.id);
+                            }
+                        } else {
+                            await markAsNotified(reminder.id);
+                        }
 
-                    if (reminderTime <= now.getTime() && reminderTime > now.getTime() - 60000) {
-                        // Only trigger within the exact minute it became due
-                        speak(`Time to: ${reminder.title}`);
+                        setActiveReminder(reminder);
+                        speak(`Reminder: ${reminder.title}`);
+
                         if (Notification.permission === 'granted') {
-                            new Notification("Time's Up!", {
+                            new Notification("⏰ Reminder!", {
                                 body: reminder.title,
-                                icon: '/pwa-192x192.png'
+                                icon: '/pwa-192x192.png',
+                                badge: '/pwa-192x192.png',
+                                tag: `reminder-${reminder.id}`,
+                                requireInteraction: true
                             });
                         }
                     }
                 }
             });
-        }, 15000);
+        }, 5000);
         return () => clearInterval(interval);
-    }, [speak]);
+    }, [speak, useMySQL]);
 
     // Request Notification permission
     useEffect(() => {
@@ -113,19 +167,52 @@ function App() {
     };
 
     const handleInput = async (text) => {
-        // Process NLP to extract time
         const { entities } = processCommand(text);
-        const title = entities.content || text; // Content found or raw text
+        const title = entities.content || text;
         const date = entities.time || null;
 
-        await addTask(title, date);
+        if (useMySQL) {
+            try {
+                await taskService.createTask(title, date);
+                await loadTasksFromMySQL();
+            } catch (error) {
+                console.error('MySQL failed, using Dexie');
+                await addTask(title, date);
+            }
+        } else {
+            await addTask(title, date);
+        }
+
         setInputValue("");
 
-        // Feedback
         if (date) {
             speak(`Added task for ${new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+        }
+    };
+
+    const handleToggle = async (id, done) => {
+        if (useMySQL) {
+            try {
+                await taskService.updateTask(id, { done: done ? 0 : 1 });
+                await loadTasksFromMySQL();
+            } catch (error) {
+                await updateTaskStatus(id, !done);
+            }
         } else {
-            // Silent add or brief chirp? Silent is better for lists.
+            await updateTaskStatus(id, !done);
+        }
+    };
+
+    const handleDelete = async (id) => {
+        if (useMySQL) {
+            try {
+                await taskService.deleteTask(id);
+                await loadTasksFromMySQL();
+            } catch (error) {
+                await deleteTask(id);
+            }
+        } else {
+            await deleteTask(id);
         }
     };
 
@@ -136,11 +223,27 @@ function App() {
     };
 
     return (
-        <div className="h-screen w-screen flex flex-col bg-slate-950 text-white relative overflow-hidden font-sans">
+        <div className="h-screen w-screen flex flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white relative overflow-hidden font-sans">
 
+            {/* Particle Background */}
+            <ParticleBackground />
+
+            {/* Status Indicators */}
             {isOffline && (
                 <div className="absolute top-0 w-full bg-yellow-600/90 backdrop-blur-sm text-center text-xs py-1 z-50">
-                    Offline
+                    ⚠️ Offline Mode
+                </div>
+            )}
+
+            {!useMySQL && !isOffline && (
+                <div className="absolute top-0 w-full bg-orange-600/90 backdrop-blur-sm text-center text-xs py-1 z-50">
+                    💾 Using Local Storage (MySQL unavailable)
+                </div>
+            )}
+
+            {useMySQL && (
+                <div className="absolute top-0 w-full bg-green-600/90 backdrop-blur-sm text-center text-xs py-1 z-50">
+                    ✅ Connected to MySQL
                 </div>
             )}
 
@@ -150,54 +253,87 @@ function App() {
                 </div>
             )}
 
-            {/* Header */}
-            <header className="w-full p-4 flex justify-between items-center bg-slate-900 border-b border-white/5 z-20 shadow-lg">
-                <div className="flex items-col flex-col">
-                    <h1 className="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">Tasks</h1>
-                    <span className="text-xs text-slate-500">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                    {installPrompt && (
-                        <button onClick={handleInstallClick} className="flex items-center gap-1 text-xs bg-cyan-900/50 hover:bg-cyan-800 px-3 py-1 rounded border border-cyan-500/30 transition-all">
-                            <Download size={14} /> Install
-                        </button>
-                    )}
+            {/* Header with Progress */}
+            <header className="w-full p-4 bg-slate-900/50 backdrop-blur-lg border-b border-white/10 z-20 shadow-2xl">
+                <div className="max-w-4xl mx-auto flex justify-between items-center">
+                    <div className="flex items-center gap-4">
+                        <div className="flex flex-col">
+                            <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 bg-clip-text text-transparent">
+                                My Tasks
+                            </h1>
+                            <span className="text-xs text-slate-400">
+                                {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                        {tasks && tasks.length > 0 && <ProgressRing tasks={tasks} />}
+                        {installPrompt && (
+                            <button
+                                onClick={handleInstallClick}
+                                className="flex items-center gap-1 text-xs bg-cyan-900/50 hover:bg-cyan-800 px-3 py-2 rounded-lg border border-cyan-500/30 transition-all hover:scale-105"
+                            >
+                                <Download size={14} /> Install
+                            </button>
+                        )}
+                    </div>
                 </div>
             </header>
 
             {/* List Area */}
-            <main className="flex-1 w-full max-w-lg mx-auto relative z-10 p-2">
-                <TodoList
-                    items={tasks || []}
-                    onToggle={(id, done) => updateTaskStatus(id, !done)}
-                    onDelete={deleteTask}
-                />
+            <main className="flex-1 w-full max-w-4xl mx-auto relative z-10 p-4 overflow-y-auto">
+                {loading ? (
+                    <div className="flex items-center justify-center h-full">
+                        <div className="animate-spin rounded-full h-12 w-12 border-4 border-cyan-500 border-t-transparent"></div>
+                    </div>
+                ) : (
+                    <TodoList
+                        items={tasks || []}
+                        onToggle={handleToggle}
+                        onDelete={handleDelete}
+                    />
+                )}
             </main>
 
             {/* Input Area (Bottom Fixed) */}
-            <div className="w-full bg-slate-900/80 backdrop-blur-lg border-t border-white/5 p-4 z-50 pb-8">
-                <div className="max-w-lg mx-auto flex gap-2 items-center">
+            <div className="w-full bg-slate-900/80 backdrop-blur-xl border-t border-white/10 p-4 z-50 pb-8 shadow-2xl">
+                <div className="max-w-4xl mx-auto flex gap-3 items-center">
                     <button
                         onClick={turnOnMicrophone}
-                        className={`p-3 rounded-full transition-all ${isListening ? 'bg-red-500 animate-pulse' : 'bg-slate-800 text-cyan-400 border border-slate-700'}`}
+                        className={`p-3 rounded-full transition-all shadow-lg ${isListening
+                                ? 'bg-red-500 animate-pulse shadow-red-500/50'
+                                : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:scale-110 shadow-cyan-500/50'
+                            }`}
                     >
                         {isListening ? <MicOff size={20} /> : <Mic size={20} />}
                     </button>
 
-                    <form onSubmit={handleSubmit} className="flex-1 flex gap-2">
+                    <form onSubmit={handleSubmit} className="flex-1 flex gap-3">
                         <input
                             type="text"
                             value={inputValue}
                             onChange={(e) => setInputValue(e.target.value)}
-                            placeholder={isListening ? "Listening..." : "Add a task (e.g., 'Call Mom at 5pm')"}
-                            className="flex-1 bg-slate-800 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cyan-500 outline-none placeholder:text-slate-600"
+                            placeholder={isListening ? "🎤 Listening..." : "Add a task (e.g., 'Call Mom at 5pm')"}
+                            className="flex-1 bg-slate-800/80 backdrop-blur-sm border border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent outline-none placeholder:text-slate-500 transition-all"
                         />
-                        <button type="submit" className="p-3 bg-cyan-600 rounded-xl text-white hover:bg-cyan-500 transition-colors">
+                        <button
+                            type="submit"
+                            className="p-3 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl text-white hover:scale-105 transition-all shadow-lg shadow-cyan-500/30"
+                        >
                             <Plus size={20} />
                         </button>
                     </form>
                 </div>
             </div>
+
+            {/* On-Screen Reminder Alert */}
+            {activeReminder && (
+                <ReminderAlert
+                    reminder={activeReminder}
+                    onClose={() => setActiveReminder(null)}
+                />
+            )}
 
         </div>
     )

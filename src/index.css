@@ -14,5 +14,36 @@ body {
   color: var(--text);
   font-family: 'Inter', sans-serif;
   margin: 0;
-  overflow: hidden; /* Prevent scroll on mobile F2F interface */
+  overflow: hidden;
+  /* Prevent scroll on mobile F2F interface */
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.4s ease-out;
 }

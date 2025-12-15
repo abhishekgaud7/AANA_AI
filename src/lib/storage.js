@@ -3,7 +3,7 @@ import Dexie from 'dexie';
 export const db = new Dexie('OfflineJarvisDB');
 
 db.version(1).stores({
-    reminders: '++id, title, date, done',
+    reminders: '++id, title, date, done, notified',
     notes: '++id, content, timestamp',
     facts: 'key, value',
     settings: 'key, value'
@@ -11,7 +11,7 @@ db.version(1).stores({
 
 // Rename functions to match "Todo" terminology for clarity, though underlying DB is same
 export const addTask = async (title, date) => {
-    return await db.reminders.add({ title, date, done: 0 });
+    return await db.reminders.add({ title, date, done: 0, notified: 0 });
 };
 
 export const getTasks = async () => {
@@ -32,4 +32,8 @@ export const deleteTask = async (id) => {
 // Keep for background check
 export const getPendingReminders = async () => {
     return await db.reminders.where('done').equals(0).toArray();
+};
+
+export const markAsNotified = async (id) => {
+    return await db.reminders.update(id, { notified: 1 });
 };
