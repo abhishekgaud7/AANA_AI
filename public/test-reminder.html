@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Reminder Test - PA_Aana</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1e293b;
+            color: white;
+        }
+
+        .test-box {
+            background: #334155;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+
+        button {
+            background: linear-gradient(to right, #a855f7, #ec4899);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        #log {
+            background: #1e293b;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔔 PA_Aana Reminder Test</h1>
+
+    <div class="test-box">
+        <h2>Quick Test</h2>
+        <p>Current Time: <span id="current-time"></span></p>
+        <button onclick="testReminder1Min()">Test Reminder (1 minute from now)</button>
+        <button onclick="testReminder30Sec()">Test Reminder (30 seconds from now)</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <div class="test-box">
+        <h2>Console Log</h2>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${time}] ${message}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function updateTime() {
+            document.getElementById('current-time').textContent = new Date().toLocaleTimeString();
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
+        function testReminder1Min() {
+            const now = new Date();
+            const reminderTime = new Date(now.getTime() + 60000); // 1 minute from now
+            log(`✅ Setting reminder for: ${reminderTime.toLocaleTimeString()}`);
+
+            // Open main app with reminder
+            const url = `http://localhost:5173`;
+            log(`📱 Opening app: ${url}`);
+            log(`💡 In the app, add task: "Test at ${reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}"`);
+            window.open(url, '_blank');
+        }
+
+        function testReminder30Sec() {
+            const now = new Date();
+            const reminderTime = new Date(now.getTime() + 30000); // 30 seconds from now
+            log(`✅ Setting reminder for: ${reminderTime.toLocaleTimeString()}`);
+
+            const url = `http://localhost:5173`;
+            log(`📱 Opening app: ${url}`);
+            log(`💡 In the app, add task: "Test at ${reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}"`);
+            window.open(url, '_blank');
+        }
+
+        log('🚀 Reminder Test Page Loaded');
+        log('📋 Instructions:');
+        log('1. Click "Test Reminder" button');
+        log('2. Add the suggested task in the app');
+        log('3. Wait for the reminder time');
+        log('4. Check if popup appears!');
+    </script>
+</body>
+
+</html>
