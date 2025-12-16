@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { Mic, MicOff, Download, Plus, Trash2, CheckCheck, Search, Cloud, Sun, CloudRain, Wind, Bell, Clock } from 'lucide-react'
+import { Mic, MicOff, Download, Plus, Trash2, CheckCheck, Search, Cloud, Sun, CloudRain, Wind, Bell, Clock, MessageSquare, ListTodo } from 'lucide-react'
 import TodoList from './components/TodoList'
+import ChatBot from './components/ChatBot'
 import ReminderAlert from './components/ReminderAlert'
 import ParticleBackground from './components/ParticleBackground'
 import ProgressRing from './components/ProgressRing'
@@ -22,6 +23,7 @@ function App() {
     const [searchQuery, setSearchQuery] = useState('');
     const [reminderTime, setReminderTime] = useState(''); // For time picker
     const [showTimeConfirm, setShowTimeConfirm] = useState(false); // Show confirmation
+    const [activeTab, setActiveTab] = useState('todo'); // 'todo' or 'chat'
 
     // Fallback to Dexie if MySQL not available
     const dexieTasks = useLiveQuery(() => db.reminders.toArray().then(rows =>
@@ -363,7 +365,31 @@ function App() {
                     </div>
 
                     <div className="flex items-center gap-4">
-                        {tasks && tasks.length > 0 && (
+                        {/* Tab Navigation */}
+                        <div className="flex gap-2 bg-slate-800/50 p-1 rounded-xl border border-slate-700/50">
+                            <button
+                                onClick={() => setActiveTab('todo')}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'todo'
+                                    ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg shadow-cyan-500/30'
+                                    : 'text-slate-400 hover:text-white'
+                                    }`}
+                            >
+                                <ListTodo size={16} />
+                                Tasks
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('chat')}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'chat'
+                                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30'
+                                    : 'text-slate-400 hover:text-white'
+                                    }`}
+                            >
+                                <MessageSquare size={16} />
+                                AI Chat
+                            </button>
+                        </div>
+
+                        {activeTab === 'todo' && tasks && tasks.length > 0 && (
                             <div className="flex flex-col text-right">
                                 <div className="text-sm text-slate-300">
                                     {tasks.filter(t => t.done).length} / {tasks.length} completed
@@ -373,7 +399,7 @@ function App() {
                                 </div>
                             </div>
                         )}
-                        {tasks && tasks.length > 0 && <ProgressRing tasks={tasks} />}
+                        {activeTab === 'todo' && tasks && tasks.length > 0 && <ProgressRing tasks={tasks} />}
                         {installPrompt && (
                             <button
                                 onClick={handleInstallClick}
@@ -388,93 +414,99 @@ function App() {
 
             {/* List Area */}
             <main className="flex-1 w-full max-w-4xl mx-auto relative z-10 p-4 overflow-y-auto">
-                {loading ? (
-                    <div className="flex items-center justify-center h-full">
-                        <div className="animate-spin rounded-full h-12 w-12 border-4 border-cyan-500 border-t-transparent"></div>
-                    </div>
+                {activeTab === 'todo' ? (
+                    loading ? (
+                        <div className="flex items-center justify-center h-full">
+                            <div className="animate-spin rounded-full h-12 w-12 border-4 border-cyan-500 border-t-transparent"></div>
+                        </div>
+                    ) : (
+                        <TodoList
+                            items={tasks || []}
+                            onToggle={handleToggle}
+                            onDelete={handleDelete}
+                        />
+                    )
                 ) : (
-                    <TodoList
-                        items={tasks || []}
-                        onToggle={handleToggle}
-                        onDelete={handleDelete}
-                    />
+                    <ChatBot />
                 )}
             </main>
 
-            {/* Input Area (Bottom Fixed) */}
-            <div className="w-full bg-slate-900/80 backdrop-blur-xl border-t border-white/10 p-4 z-50 pb-8 shadow-2xl">
-                {/* Time Confirmation Toast */}
-                {showTimeConfirm && (
-                    <div className="max-w-4xl mx-auto mb-3">
-                        <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
-                            <span className="text-xl">✅</span>
-                            <span className="font-medium">Reminder set! Popup will appear at scheduled time.</span>
+            {/* Input Area (Bottom Fixed) - Only show for Todo tab */}
+            {activeTab === 'todo' && (
+                <div className="w-full bg-slate-900/80 backdrop-blur-xl border-t border-white/10 p-4 z-50 pb-8 shadow-2xl">
+                    {/* Time Confirmation Toast */}
+                    {showTimeConfirm && (
+                        <div className="max-w-4xl mx-auto mb-3">
+                            <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 animate-pulse">
+                                <span className="text-xl">✅</span>
+                                <span className="font-medium">Reminder set! Popup will appear at scheduled time.</span>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="max-w-4xl mx-auto">
+                        {/* Time Picker Row */}
+                        <div className="flex gap-2 mb-3 items-center">
+                            <label className="text-sm text-purple-300 flex items-center gap-2">
+                                <Clock size={16} />
+                                Set Reminder Time:
+                            </label>
+                            <input
+                                type="datetime-local"
+                                value={reminderTime}
+                                onChange={(e) => setReminderTime(e.target.value)}
+                                className="bg-slate-800/80 border border-purple-500/30 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-purple-500 outline-none"
+                            />
+                            {reminderTime && (
+                                <button
+                                    onClick={() => setReminderTime('')}
+                                    className="text-xs text-slate-400 hover:text-white"
+                                >
+                                    Clear
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Input Row */}
+                        <div className="flex gap-3 items-center">
+                            <button
+                                onClick={turnOnMicrophone}
+                                className={`p-3 rounded-full transition-all shadow-lg ${isListening
+                                    ? 'bg-red-500 animate-pulse shadow-red-500/50'
+                                    : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:scale-110 shadow-cyan-500/50'
+                                    }`}
+                            >
+                                {isListening ? <MicOff size={20} /> : <Mic size={20} />}
+                            </button>
+
+                            <form onSubmit={handleSubmit} className="flex-1 flex gap-3">
+                                <input
+                                    type="text"
+                                    value={inputValue}
+                                    onChange={(e) => setInputValue(e.target.value)}
+                                    placeholder={isListening ? "🎤 Listening..." : "Add a task (e.g., 'Call Mom at 5pm')"}
+                                    className="flex-1 bg-slate-800/80 backdrop-blur-sm border border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none placeholder:text-slate-500 transition-all"
+                                />
+                                <button
+                                    type="submit"
+                                    className="p-3 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl text-white hover:scale-105 transition-all shadow-lg shadow-cyan-500/30"
+                                >
+                                    <Plus size={20} />
+                                </button>
+                            </form>
                         </div>
                     </div>
-                )}
 
-                <div className="max-w-4xl mx-auto">
-                    {/* Time Picker Row */}
-                    <div className="flex gap-2 mb-3 items-center">
-                        <label className="text-sm text-purple-300 flex items-center gap-2">
-                            <Clock size={16} />
-                            Set Reminder Time:
-                        </label>
-                        <input
-                            type="datetime-local"
-                            value={reminderTime}
-                            onChange={(e) => setReminderTime(e.target.value)}
-                            className="bg-slate-800/80 border border-purple-500/30 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-purple-500 outline-none"
-                        />
-                        {reminderTime && (
-                            <button
-                                onClick={() => setReminderTime('')}
-                                className="text-xs text-slate-400 hover:text-white"
-                            >
-                                Clear
-                            </button>
-                        )}
-                    </div>
-
-                    {/* Input Row */}
-                    <div className="flex gap-3 items-center">
-                        <button
-                            onClick={turnOnMicrophone}
-                            className={`p-3 rounded-full transition-all shadow-lg ${isListening
-                                ? 'bg-red-500 animate-pulse shadow-red-500/50'
-                                : 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:scale-110 shadow-cyan-500/50'
-                                }`}
-                        >
-                            {isListening ? <MicOff size={20} /> : <Mic size={20} />}
-                        </button>
-
-                        <form onSubmit={handleSubmit} className="flex-1 flex gap-3">
-                            <input
-                                type="text"
-                                value={inputValue}
-                                onChange={(e) => setInputValue(e.target.value)}
-                                placeholder={isListening ? "🎤 Listening..." : "Add a task (e.g., 'Call Mom at 5pm')"}
-                                className="flex-1 bg-slate-800/80 backdrop-blur-sm border border-slate-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none placeholder:text-slate-500 transition-all"
-                            />
-                            <button
-                                type="submit"
-                                className="p-3 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl text-white hover:scale-105 transition-all shadow-lg shadow-cyan-500/30"
-                            >
-                                <Plus size={20} />
-                            </button>
-                        </form>
-                    </div>
                 </div>
+            )}
 
-                {/* On-Screen Reminder Alert */}
-                {activeReminder && (
-                    <ReminderAlert
-                        reminder={activeReminder}
-                        onClose={() => setActiveReminder(null)}
-                    />
-                )}
-
-            </div>
+            {/* On-Screen Reminder Alert - Global */}
+            {activeReminder && (
+                <ReminderAlert
+                    reminder={activeReminder}
+                    onClose={() => setActiveReminder(null)}
+                />
+            )}
         </div>
     )
 }
